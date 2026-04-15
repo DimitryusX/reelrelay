@@ -1,0 +1,7 @@
+services:
+  reelrelay:
+    build: .
+    image: reelrelay:local
+    restart: unless-stopped
+    env_file:
+      - .env

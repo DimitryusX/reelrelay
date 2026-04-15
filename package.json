@@ -1,0 +1,18 @@
+{
+  "name": "reelrelay",
+  "version": "1.0.0",
+  "description": "ReelRelay - Telegram bot that relays social video links as MP4 in chat (yt-dlp + ffmpeg)",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "grammy": "^1.35.0"
+  }
+}
