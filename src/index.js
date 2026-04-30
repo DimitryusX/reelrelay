@@ -6,7 +6,13 @@ import { Bot, InputFile } from "grammy";
 import { extractSupportedUrls } from "./tools.js";
 import { downloadWithYtDlp } from "./ydl.js";
 
-const TELEGRAM_FILE_LIMIT = 50 * 1024 * 1024;
+const DEFAULT_TELEGRAM_FILE_LIMIT_MB = 50;
+const parsedLimitMb = Number.parseFloat(process.env.TELEGRAM_FILE_LIMIT ?? "");
+const limitMb =
+  Number.isFinite(parsedLimitMb) && parsedLimitMb > 0
+    ? parsedLimitMb
+    : DEFAULT_TELEGRAM_FILE_LIMIT_MB;
+const TELEGRAM_FILE_LIMIT = Math.floor(limitMb * 1024 * 1024);
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -45,7 +51,7 @@ bot.on("message:text", async (ctx, next) => {
           await ctx.api.editMessageText(
             chatId,
             status.message_id,
-            `File too large (${(size / 1024 / 1024).toFixed(1)} MB). Telegram bot upload limit is ~50 MB.`,
+            `File too large (${(size / 1024 / 1024).toFixed(1)} MB). Limit is ~${limitMb % 1 === 0 ? limitMb : limitMb.toFixed(1)} MB.`,
           );
           continue;
         }
