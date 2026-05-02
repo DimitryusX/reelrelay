@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { readdir, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 const VIDEO_EXT = new Set([".mp4", ".mkv", ".webm", ".mov", ".m4v"]);
@@ -16,6 +17,22 @@ export async function downloadWithYtDlp(url, workDir) {
     "--no-warnings",
     "--no-playlist",
     "--newline",
+  ];
+
+  const cookiesRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
+  if (cookiesRaw) {
+    const cookiesPath = path.isAbsolute(cookiesRaw)
+      ? cookiesRaw
+      : path.resolve(process.cwd(), cookiesRaw);
+    await access(cookiesPath, constants.R_OK).catch(() => {
+      throw new Error(
+        `YT_DLP_COOKIES_FILE is not a readable file: ${cookiesPath}`,
+      );
+    });
+    args.push("--cookies", cookiesPath);
+  }
+
+  args.push(
     "-o",
     outTemplate,
     // Best video+audio, mux into a single MP4 container
@@ -24,7 +41,7 @@ export async function downloadWithYtDlp(url, workDir) {
     "--merge-output-format",
     "mp4",
     url,
-  ];
+  );
 
   await runProcess("yt-dlp", args, { cwd: workDir });
 

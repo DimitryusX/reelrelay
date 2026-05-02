@@ -27,10 +27,11 @@ pnpm install
 cp .env.example .env
 ```
 
-Edit `.env` and set the token:
+Edit `.env`: **`BOT_TOKEN`** (required). **`YT_DLP_COOKIES_FILE`** — optional path to Netscape `cookies.txt` for Instagram/Facebook when yt-dlp needs auth ([FAQ](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp)).
 
 ```env
 BOT_TOKEN=123456:ABC...
+# YT_DLP_COOKIES_FILE=/path/to/cookies.txt
 ```
 
 ## Run
@@ -92,13 +93,13 @@ Other sites are ignored.
 - Only **one** download pipeline per **chat** at a time; if you send another link while busy, you get a short “please wait” reply.
 - Multiple supported links in one message are processed **one after another**.
 - Temp files live under the system temp dir (`os.tmpdir()`); the folder is removed after send or on error.
-- **Private** posts or accounts often **fail** without extra setup (cookies, etc.) — not implemented here.
+- Restricted Instagram/Facebook: set **`YT_DLP_COOKIES_FILE`** if needed.
 
 ## Troubleshooting
 
 - **`corepack enable` permission errors** (symlink into global `bin`) — use `npx pnpm@9.15.9 install` for a one-off, or fix permissions / update Node.
 - **`yt-dlp` not found** — install [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation) and ensure it is on `PATH`.
-- **Facebook / Instagram errors** — platforms change often; upgrade `yt-dlp` to the latest release.
+- **Facebook / Instagram** — update `yt-dlp`; “unreachable” / auth → **`YT_DLP_COOKIES_FILE`** (Netscape `cookies.txt`).
 - **Slow runs or high CPU** — normal when the **ffmpeg** transcode path runs (e.g. non-MP4 container).
 
 ## Legal
