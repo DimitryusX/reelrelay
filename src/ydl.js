@@ -5,6 +5,18 @@ import path from "node:path";
 
 const VIDEO_EXT = new Set([".mp4", ".mkv", ".webm", ".mov", ".m4v"]);
 
+/** yt-dlp found a URL but there is no video to download (e.g. photo-only post). */
+export class NoVideoContentError extends Error {
+  constructor() {
+    super("No video content");
+    this.name = "NoVideoContentError";
+  }
+}
+
+function isNoVideoContentMessage(message) {
+  return /No video formats found/i.test(message);
+}
+
 /**
  * Download media with yt-dlp, merge to MP4 when possible, otherwise transcode.
  * @param {string} url
@@ -43,7 +55,15 @@ export async function downloadWithYtDlp(url, workDir) {
     url,
   );
 
-  await runProcess("yt-dlp", args, { cwd: workDir });
+  try {
+    await runProcess("yt-dlp", args, { cwd: workDir });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (isNoVideoContentMessage(msg)) {
+      throw new NoVideoContentError();
+    }
+    throw e;
+  }
 
   const file = await pickLatestVideoFile(workDir);
   if (!file) {

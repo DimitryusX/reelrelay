@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { Bot, InputFile } from "grammy";
 import { extractSupportedUrls } from "./tools.js";
-import { downloadWithYtDlp } from "./ydl.js";
+import { downloadWithYtDlp, NoVideoContentError } from "./ydl.js";
 
 const DEFAULT_TELEGRAM_FILE_LIMIT_MB = 50;
 const parsedLimitMb = Number.parseFloat(process.env.TELEGRAM_FILE_LIMIT ?? "");
@@ -61,6 +61,10 @@ bot.on("message:text", async (ctx, next) => {
         });
         await ctx.api.deleteMessage(chatId, status.message_id);
       } catch (e) {
+        if (e instanceof NoVideoContentError) {
+          await ctx.api.deleteMessage(chatId, status.message_id).catch(() => {});
+          continue;
+        }
         const msg = e instanceof Error ? e.message : String(e);
         await ctx.api.editMessageText(
           chatId,
