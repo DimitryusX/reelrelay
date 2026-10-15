@@ -3,13 +3,9 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Bot, InputFile } from "grammy";
-import { ERROR_TEXT_LIMIT, SHUTDOWN_GRACE_MS } from "./constants.js";
-import {
-  buildCaption,
-  collectMessageUrls,
-  formatFailure,
-} from "./tools.js";
-import { downloadWithYtDlp, NoVideoContentError } from "./ydl.js";
+import { SHUTDOWN_GRACE_MS, TELEGRAM_PHOTO_LIMIT } from "./constants.js";
+import { classifyMediaUrl, collectMessageUrls } from "./tools.js";
+import { downloadFacebookPhoto, downloadWithYtDlp } from "./ydl.js";
 
 const DEFAULT_TELEGRAM_FILE_LIMIT_MB = 50;
 const parsedLimitMb = Number.parseFloat(process.env.TELEGRAM_FILE_LIMIT ?? "");
@@ -58,38 +54,44 @@ async function relayLinks(ctx, next) {
   busyChats.add(chatId);
   try {
     for (const url of urls) {
-      const status = await ctx.reply("Downloading and converting to MP4…", {
-        reply_parameters: { message_id: ctx.message.message_id },
-      });
       let workDir = "";
       try {
+        const kind = classifyMediaUrl(url);
+        if (!kind) continue;
+
+        // No chat reply until media is ready. Missing / failed downloads are
+        // logged only (silent ignore in the chat).
+        await ctx
+          .replyWithChatAction(kind === "photo" ? "upload_photo" : "upload_video")
+          .catch(() => {});
         workDir = await mkdtemp(path.join(os.tmpdir(), "reelrelay-"));
-        const filePath = await downloadWithYtDlp(url, workDir);
+        const filePath =
+          kind === "photo"
+            ? await downloadFacebookPhoto(url, workDir)
+            : await downloadWithYtDlp(url, workDir);
         const { size } = await stat(filePath);
         if (size > TELEGRAM_FILE_LIMIT) {
-          await ctx.api.editMessageText(
-            chatId,
-            status.message_id,
+          await ctx.reply(
             `File too large (${(size / 1024 / 1024).toFixed(1)} MB). Limit is ~${limitMb % 1 === 0 ? limitMb : limitMb.toFixed(1)} MB.`,
-          ).catch(() => {});
+            { reply_parameters: { message_id: ctx.message.message_id } },
+          );
           continue;
         }
-        await ctx.replyWithVideo(new InputFile(filePath), {
-          ...buildCaption(ctx.message, url),
+        const media = {
+          caption: url,
           reply_parameters: { message_id: ctx.message.message_id },
-        });
-        await ctx.api.deleteMessage(chatId, status.message_id).catch(() => {});
-      } catch (e) {
-        if (e instanceof NoVideoContentError) {
-          await ctx.api.deleteMessage(chatId, status.message_id).catch(() => {});
-          continue;
+        };
+        if (kind === "photo") {
+          if (size > TELEGRAM_PHOTO_LIMIT) {
+            await ctx.replyWithDocument(new InputFile(filePath), media);
+          } else {
+            await ctx.replyWithPhoto(new InputFile(filePath), media);
+          }
+        } else {
+          await ctx.replyWithVideo(new InputFile(filePath), media);
         }
+      } catch (e) {
         console.error(`Failed to relay ${url}:`, e);
-        await ctx.api.editMessageText(
-          chatId,
-          status.message_id,
-          `Failed: ${formatFailure(e).slice(0, ERROR_TEXT_LIMIT)}`,
-        ).catch(() => {});
       } finally {
         if (workDir) {
           await rm(workDir, { recursive: true, force: true }).catch(() => {});

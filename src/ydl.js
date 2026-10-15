@@ -5,11 +5,13 @@ import path from "node:path";
 import {
   FFMPEG_TIMEOUT_MS,
   FFPROBE_TIMEOUT_MS,
+  GALLERY_DL_TIMEOUT_MS,
   YT_DLP_FORMAT_SORT,
   YT_DLP_TIMEOUT_MS,
 } from "./constants.js";
 
 const VIDEO_EXT = new Set([".mp4", ".mkv", ".webm", ".mov", ".m4v"]);
+const IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
 /** yt-dlp found a URL but there is no video to download (e.g. photo-only post). */
 export class NoVideoContentError extends Error {
@@ -20,7 +22,24 @@ export class NoVideoContentError extends Error {
 }
 
 function isNoVideoContentMessage(message) {
-  return /No video formats found/i.test(message);
+  return /No video formats found|Unsupported URL|There is no video|No video could be found/i.test(
+    message,
+  );
+}
+
+/** @returns {Promise<string[]>} `--cookies path` or empty. */
+async function cookiesArg() {
+  const cookiesRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
+  if (!cookiesRaw) return [];
+  const cookiesPath = path.isAbsolute(cookiesRaw)
+    ? cookiesRaw
+    : path.resolve(process.cwd(), cookiesRaw);
+  await access(cookiesPath, constants.R_OK).catch(() => {
+    throw new Error(
+      `YT_DLP_COOKIES_FILE is not a readable file: ${cookiesPath}`,
+    );
+  });
+  return ["--cookies", cookiesPath];
 }
 
 /**
@@ -36,22 +55,7 @@ export async function downloadWithYtDlp(url, workDir) {
     "--no-warnings",
     "--no-playlist",
     "--newline",
-  ];
-
-  const cookiesRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
-  if (cookiesRaw) {
-    const cookiesPath = path.isAbsolute(cookiesRaw)
-      ? cookiesRaw
-      : path.resolve(process.cwd(), cookiesRaw);
-    await access(cookiesPath, constants.R_OK).catch(() => {
-      throw new Error(
-        `YT_DLP_COOKIES_FILE is not a readable file: ${cookiesPath}`,
-      );
-    });
-    args.push("--cookies", cookiesPath);
-  }
-
-  args.push(
+    ...(await cookiesArg()),
     "-o",
     outTemplate,
     // Best video+audio, mux into a single MP4 container
@@ -62,7 +66,7 @@ export async function downloadWithYtDlp(url, workDir) {
     "--merge-output-format",
     "mp4",
     url,
-  );
+  ];
 
   try {
     await runProcess("yt-dlp", args, {
@@ -79,7 +83,8 @@ export async function downloadWithYtDlp(url, workDir) {
 
   const file = await pickLatestVideoFile(workDir);
   if (!file) {
-    throw new Error("yt-dlp finished without a video file in the work directory");
+    // yt-dlp sometimes exits 0 after saving only an image (photo post).
+    throw new NoVideoContentError();
   }
 
   const ext = path.extname(file).toLowerCase();
@@ -91,6 +96,33 @@ export async function downloadWithYtDlp(url, workDir) {
   const mp4Path = path.join(workDir, "video.final.mp4");
   await transcodeToMp4(file, mp4Path);
   return mp4Path;
+}
+
+/**
+ * Download a Facebook photo with gallery-dl (yt-dlp has no photo extractor).
+ * @param {string} url
+ * @param {string} workDir Absolute path to an empty temp directory.
+ * @returns {Promise<string>} Path to the image file.
+ */
+export async function downloadFacebookPhoto(url, workDir) {
+  const args = [
+    "--quiet",
+    "-D",
+    workDir,
+    "-f",
+    "fbphoto.{extension}",
+    ...(await cookiesArg()),
+    url,
+  ];
+  await runProcess("gallery-dl", args, {
+    cwd: workDir,
+    timeoutMs: GALLERY_DL_TIMEOUT_MS,
+  });
+  const file = await pickLatestImageFile(workDir);
+  if (!file) {
+    throw new NoVideoContentError();
+  }
+  return file;
 }
 
 /**
@@ -182,21 +214,40 @@ function runProcess(cmd, args, { timeoutMs = 0, ...opts }) {
 }
 
 /**
- * Pick the newest video-like file in a directory (yt-dlp output).
+ * Pick the newest file with an allowed extension under dir (recursive:
+ * gallery-dl may nest folders even with `-D`).
  * @param {string} dir
+ * @param {Set<string>} exts
  */
-async function pickLatestVideoFile(dir) {
-  const names = await readdir(dir);
+async function pickLatestFile(dir, exts) {
   let best = /** @type {{ p: string, m: number } | null} */ (null);
-  for (const name of names) {
-    const ext = path.extname(name).toLowerCase();
-    if (!VIDEO_EXT.has(ext)) continue;
-    const p = path.join(dir, name);
-    const st = await stat(p);
-    if (!st.isFile()) continue;
-    if (!best || st.mtimeMs > best.m) best = { p, m: st.mtimeMs };
+  async function walk(d) {
+    const names = await readdir(d);
+    for (const name of names) {
+      const p = path.join(d, name);
+      const st = await stat(p);
+      if (st.isDirectory()) {
+        await walk(p);
+        continue;
+      }
+      if (!st.isFile()) continue;
+      const ext = path.extname(name).toLowerCase();
+      if (!exts.has(ext)) continue;
+      if (!best || st.mtimeMs > best.m) best = { p, m: st.mtimeMs };
+    }
   }
+  await walk(dir);
   return best?.p ?? null;
+}
+
+/** @param {string} dir */
+function pickLatestVideoFile(dir) {
+  return pickLatestFile(dir, VIDEO_EXT);
+}
+
+/** @param {string} dir */
+function pickLatestImageFile(dir) {
+  return pickLatestFile(dir, IMAGE_EXT);
 }
 
 /** @param {import('node:child_process').ChildProcess} child */
