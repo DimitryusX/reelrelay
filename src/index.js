@@ -8,7 +8,6 @@ import {
   buildCaption,
   collectMessageUrls,
   formatFailure,
-  isOnlyLinks,
 } from "./tools.js";
 import { downloadWithYtDlp, NoVideoContentError } from "./ydl.js";
 
@@ -56,11 +55,6 @@ async function relayLinks(ctx, next) {
     return;
   }
 
-  // A message made of links only is replaced by the videos once all of them
-  // were posted; otherwise (comment, media caption, failure) it is kept.
-  const removeOriginal = isOnlyLinks(ctx.message.text);
-  let sentAll = true;
-
   busyChats.add(chatId);
   try {
     for (const url of urls) {
@@ -73,7 +67,6 @@ async function relayLinks(ctx, next) {
         const filePath = await downloadWithYtDlp(url, workDir);
         const { size } = await stat(filePath);
         if (size > TELEGRAM_FILE_LIMIT) {
-          sentAll = false;
           await ctx.api.editMessageText(
             chatId,
             status.message_id,
@@ -83,13 +76,10 @@ async function relayLinks(ctx, next) {
         }
         await ctx.replyWithVideo(new InputFile(filePath), {
           ...buildCaption(ctx.message, url),
-          ...(removeOriginal
-            ? {}
-            : { reply_parameters: { message_id: ctx.message.message_id } }),
+          reply_parameters: { message_id: ctx.message.message_id },
         });
         await ctx.api.deleteMessage(chatId, status.message_id).catch(() => {});
       } catch (e) {
-        sentAll = false;
         if (e instanceof NoVideoContentError) {
           await ctx.api.deleteMessage(chatId, status.message_id).catch(() => {});
           continue;
@@ -105,11 +95,6 @@ async function relayLinks(ctx, next) {
           await rm(workDir, { recursive: true, force: true }).catch(() => {});
         }
       }
-    }
-    if (removeOriginal && sentAll) {
-      await ctx.api
-        .deleteMessage(chatId, ctx.message.message_id)
-        .catch(() => {});
     }
   } finally {
     busyChats.delete(chatId);

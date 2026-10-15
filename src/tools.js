@@ -120,18 +120,3 @@ export function buildCaption(message, url) {
     ],
   };
 }
-
-/**
- * Whether the text is nothing but supported links, so deleting the message
- * after its videos are posted loses nothing.
- * @param {string | undefined} text
- */
-export function isOnlyLinks(text) {
-  const tokens = text?.trim().split(/\s+/).filter(Boolean) ?? [];
-  return (
-    tokens.length > 0 &&
-    tokens.every(
-      (t) => /^https?:\/\//i.test(t) && extractSupportedUrls(t).length === 1,
-    )
-  );
-}
