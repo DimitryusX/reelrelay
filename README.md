@@ -75,23 +75,26 @@ Stop:
 docker compose down
 ```
 
-To refresh **yt-dlp** inside the image, rebuild the apt/pip layer or run `pip install -U yt-dlp` in the container; for a clean refresh use `docker compose build --no-cache` and `up -d`.
+The container upgrades **yt-dlp** on every start (social extractors break often), so `docker compose restart` picks up fixes; `YT_DLP_AUTO_UPDATE=0` keeps the version from the image.
 
 ## Supported links
 
-The bot scans message text and keeps URLs whose host matches, for example:
+The bot scans message text, media captions and hidden links (text with a hyperlink) and keeps URLs whose host matches, for example:
 
 - `instagram.com` (including subdomains)
 - `tiktok.com`, `vm.tiktok.com`, `vt.tiktok.com`
 - `facebook.com`, `m.facebook.com`, `fb.watch`
 
-Other sites are ignored.
+Other sites are ignored, and so are Facebook photo pages (`/photo/?fbid=…`) — yt-dlp cannot extract them.
 
 ## Limits and behavior
 
 - **Upload size** for the standard Bot API is about **50 MB**. Larger files are not sent; the bot explains that in chat.
-- Only **one** download pipeline per **chat** at a time; if you send another link while busy, you get a short “please wait” reply.
+- Only **one** download pipeline per **chat** at a time; if you send another link while busy, you get a short “please wait” reply. Other chats are not blocked.
 - Multiple supported links in one message are processed **one after another**.
+- Videos are sent as **H.264 + AAC** MP4: yt-dlp prefers those formats, anything else (H.265, VP9, AV1, Opus…) is transcoded.
+- yt-dlp is stopped after 10 min, ffmpeg after 20 min.
+- Each video is captioned **`Name: <link>`**, the name linking to the sender's profile. A message that is only links is deleted once all its videos are posted (in groups the bot needs the *Delete messages* right); messages with a comment, a media caption or a failed link are kept and the video replies to them.
 - Temp files live under the system temp dir (`os.tmpdir()`); the folder is removed after send or on error.
 - Restricted Instagram/Facebook: set **`YT_DLP_COOKIES_FILE`** if needed.
 
@@ -99,6 +102,7 @@ Other sites are ignored.
 
 - **`corepack enable` permission errors** (symlink into global `bin`) — use `npx pnpm@9.15.9 install` for a one-off, or fix permissions / update Node.
 - **`yt-dlp` not found** — install [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation) and ensure it is on `PATH`.
+- **TikTok: `Unexpected response from webpage request`** — yt-dlp ≥ 2026.06 needs `yt-dlp[default,curl-cffi]` (browser impersonation); the Docker image installs it.
 - **Facebook / Instagram** — update `yt-dlp`; “unreachable” / auth → **`YT_DLP_COOKIES_FILE`** (Netscape `cookies.txt`).
 - **Slow runs or high CPU** — normal when the **ffmpeg** transcode path runs (e.g. non-MP4 container).
 

@@ -3,5 +3,7 @@ services:
     build: .
     image: reelrelay:local
     restart: unless-stopped
+    # tini as PID 1: forwards SIGTERM to node and reaps yt-dlp/ffmpeg zombies
+    init: true
     env_file:
       - .env
