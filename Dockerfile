@@ -1,7 +1,7 @@
 FROM node:20-bookworm-slim
 
 # ffmpeg: mux audio/video and transcode to MP4 when needed
-# python3 + pip: install/update yt-dlp from PyPI
+# python3 + pip: install/update yt-dlp from PyPI (curl_cffi: browser impersonation)
 # ca-certificates: HTTPS to Telegram and social platforms
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -9,8 +9,11 @@ RUN apt-get update \
     ffmpeg \
     python3 \
     python3-pip \
-  && pip3 install --no-cache-dir --break-system-packages yt-dlp \
+  && pip3 install --no-cache-dir --break-system-packages 'yt-dlp[default,curl-cffi]' \
   && rm -rf /var/lib/apt/lists/*
+
+# TikTok (yt-dlp >= 2026.06) only passes its challenge with impersonation
+RUN yt-dlp --list-impersonate-targets | grep -qE 'curl_cffi$'
 
 WORKDIR /app
 
@@ -23,4 +26,6 @@ COPY src ./src
 
 ENV NODE_ENV=production
 
+COPY docker-entrypoint.sh ./
+ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]
 CMD ["node", "src/index.js"]
